@@ -52,5 +52,5 @@ pub fn main() !void {
         }
         // std.debug.print("Direction {d} Magnitude {d} dial {d}\n", .{ direction, magnitude, dial });
     }
-    std.debug.print("zero count {d}", .{ zero_count });
+    std.debug.print("zero count {d}\n", .{ zero_count });
 }
