@@ -1,11 +1,13 @@
 const std = @import("std");
+const tokenizeAny = std.mem.tokenizeAny;
 const tokenizeScalar = std.mem.tokenizeScalar;
 
 const ZigError = error{
     NoFileSupplied,
     FileNotFound,
-    IntParseFailed,
+    ParseFailed,
     OutOfMemory,
+    OutOfBounds,
 };
 
 fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
@@ -14,6 +16,31 @@ fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
     _ = it.next(); // skip the executable (first arg)
     const filename = it.next() orelse return ZigError.NoFileSupplied;
     return filename;
+}
+
+pub const Range = struct {
+    const Self = @This();
+
+    start: usize,
+    end: usize,
+
+    pub fn init(start: usize, end: usize) Range {
+        return .{ .start = start, .end = end };
+    }
+
+    pub fn parse(input: []const u8) ZigError!Self {
+        var parsed = tokenizeScalar(u8, input, '-');
+        const start: usize = std.fmt.parseInt(usize, parsed.next().?, 10) catch return ZigError.ParseFailed;
+        const end: usize = std.fmt.parseInt(usize, parsed.next().?, 10) catch return ZigError.ParseFailed;
+        const r = init(start, end);
+        return r;
+    }
+};
+
+fn has_repeating_seq(input: u64) ZigError!bool {
+    var buffer: [32]u8 = undefined;
+    const input_string = std.fmt.bufPrint(&buffer, "{d}", .{input}) catch return ZigError.OutOfBounds;
+    return std.mem.eql(u8, input_string[0..input_string.len/2], input_string[input_string.len/2..input_string.len]);
 }
 
 pub fn main() !void {
@@ -39,32 +66,15 @@ pub fn main() !void {
     defer allocator.free(file_contents);
 
     std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
-    var dial: isize = 50;
-    var zero_count: isize = 0;
-    var it = tokenizeScalar(u8, file_contents, '\n');
+    var it = tokenizeAny(u8, file_contents, ",\n");
+    var sum: u64 = 0;
     while (it.next()) |next| {
-        const direction: isize = if (next[0] == 'L') -1 else 1;
-        var magnitude: isize = std.fmt.parseInt(isize, next[1..], 10) catch return ZigError.IntParseFailed;
-
-        const rotations = @divFloor(magnitude, 100);
-        zero_count += rotations;
-
-        magnitude = @mod(magnitude, 100);
-        if (magnitude == 0) continue;
-
-        const old_dial = dial;
-        dial = @mod(dial + (direction * magnitude), 100);
-
-        if (dial == 0) {
-            zero_count += 1;
-        } else if (old_dial != 0 and ((direction == 1 and old_dial > dial) or
-            (direction == -1 and old_dial < dial)))
-        {
-            zero_count += 1;
+        const r = try Range.parse(next);
+        for (r.start .. r.end + 1) |n| {
+            if (try has_repeating_seq(n)) {
+                sum += n;
+            }
         }
-        // std.debug.print("Dir {d} Mag {d} Rot {d} Old {d} New {d}\n", .{ direction, magnitude, rotations, old_dial, dial });
     }
-
-    // You only need one counter now
-    std.debug.print("Total Password: {d}\n", .{zero_count});
+    std.debug.print("Sum part 2 {d}.\n", .{sum});
 }
