@@ -50,6 +50,7 @@ fn has_repeating_seq(input: u64) ZigError!bool {
                     continue :outer;
                 }
             }
+            return true;
         }
     }
     return false;
