@@ -40,7 +40,22 @@ pub const Range = struct {
 fn has_repeating_seq(input: u64) ZigError!bool {
     var buffer: [32]u8 = undefined;
     const input_string = std.fmt.bufPrint(&buffer, "{d}", .{input}) catch return ZigError.OutOfBounds;
-    return std.mem.eql(u8, input_string[0..input_string.len/2], input_string[input_string.len/2..input_string.len]);
+
+    for (1..input_string.len / 2 + 1) |len| {
+        if (input_string.len % len == 0) {
+            const pattern = input_string[0..len];
+            var match = true;
+            var i: usize = len;
+            while (i < input_string.len) : (i += len) {
+                if (!std.mem.eql(u8, input_string[i .. i + len], pattern)) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return true;
+        }
+    }
+    return false;
 }
 
 pub fn main() !void {
