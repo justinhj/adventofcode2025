@@ -8,6 +8,7 @@ const ZigError = error{
     FileNotFound,
     ParseFailed,
     OutOfMemory,
+    OutOfBounds,
 };
 
 fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
@@ -29,13 +30,31 @@ pub const Range = struct {
     }
 
     pub fn parse(input: []const u8) ZigError!Self {
-       var parsed = tokenizeScalar(u8, input, '-');
-       const start : usize = std.fmt.parseInt(usize, parsed.next().?, 10) catch return ZigError.ParseFailed;
-       const end : usize = std.fmt.parseInt(usize, parsed.next().?, 10) catch return ZigError.ParseFailed;
-       const r = init(start, end);
-       return r;
+        var parsed = tokenizeScalar(u8, input, '-');
+        const start: usize = std.fmt.parseInt(usize, parsed.next().?, 10) catch return ZigError.ParseFailed;
+        const end: usize = std.fmt.parseInt(usize, parsed.next().?, 10) catch return ZigError.ParseFailed;
+        const r = init(start, end);
+        return r;
     }
 };
+
+fn has_repeating_seq(input: u64) ZigError!bool {
+    var buffer: [32]u8 = undefined;
+    const input_string = std.fmt.bufPrint(&buffer, "{d}", .{input}) catch return ZigError.OutOfBounds;
+    var data: [2]u64 = .{ 0, 0 };
+    for (0..input_string.len - 1) |i| {
+        // the number determines the bit to set in the 128 bit array
+        const c1: u64 = input_string[i];
+        const c2: u64 = input_string[i + 1];
+        const bit: u64 = (10 * (c1 - '0')) + (c2 - '0');
+        if (bit < 64) {
+            data[0] = data[0] | (1 << bit);
+        } else {
+            data[1] = data[1] | (1 << (bit - 64));
+        }
+    }
+    return false;
+}
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -64,5 +83,7 @@ pub fn main() !void {
     while (it.next()) |next| {
         const s = try Range.parse(next);
         _ = s;
+        const test1 = try has_repeating_seq(100);
+        _ = test1;
     }
 }
