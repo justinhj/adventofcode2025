@@ -41,19 +41,7 @@ pub const Range = struct {
 fn has_repeating_seq(input: u64) ZigError!bool {
     var buffer: [32]u8 = undefined;
     const input_string = std.fmt.bufPrint(&buffer, "{d}", .{input}) catch return ZigError.OutOfBounds;
-    var data: [2]u64 = .{ 0, 0 };
-    for (0..input_string.len - 1) |i| {
-        // the number determines the bit to set in the 128 bit array
-        const c1: u64 = input_string[i];
-        const c2: u64 = input_string[i + 1];
-        const bit: u64 = (10 * (c1 - '0')) + (c2 - '0');
-        if (bit < 64) {
-            data[0] = data[0] | (1 << bit);
-        } else {
-            data[1] = data[1] | (1 << (bit - 64));
-        }
-    }
-    return false;
+    return std.mem.eql(u8, input_string[0..input_string.len/2], input_string[input_string.len/2..input_string.len]);
 }
 
 pub fn main() !void {
@@ -80,10 +68,14 @@ pub fn main() !void {
 
     std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
     var it = tokenizeAny(u8, file_contents, ",\n");
+    var sum: u64 = 0;
     while (it.next()) |next| {
-        const s = try Range.parse(next);
-        _ = s;
-        const test1 = try has_repeating_seq(100);
-        _ = test1;
+        const r = try Range.parse(next);
+        for (r.start .. r.end + 1) |n| {
+            if (try has_repeating_seq(n)) {
+                sum += n;
+            }
+        }
     }
+    std.debug.print("Sum {d}.\n", .{sum});
 }
