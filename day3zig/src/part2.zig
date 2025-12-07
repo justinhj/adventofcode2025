@@ -75,7 +75,7 @@ pub fn main() !void {
     var it = tokenizeScalar(u8, file_contents, '\n');
     var sum: u64 = 0;
     while (it.next()) |next| {
-        const mv = max_voltage(next);
+        const mv = max_voltage_n(next, 12);
         sum += @intCast(mv);
     }
     std.debug.print("Result {d}.\n", .{sum});
@@ -91,4 +91,10 @@ test "max_voltage test cases" {
     try std.testing.expectEqual(89, max_voltage_n("811111111111119", 2));
     try std.testing.expectEqual(78, max_voltage_n("234234234234278", 2));
     try std.testing.expectEqual(92, max_voltage_n("818181911112111", 2));
+
+    try std.testing.expectEqual(987654321111, max_voltage_n("987654321111111", 12));
+    try std.testing.expectEqual(811111111119, max_voltage_n("811111111111119", 12));
+    try std.testing.expectEqual(434234234278, max_voltage_n("234234234234278", 12));
+    try std.testing.expectEqual(888911112111, max_voltage_n("818181911112111", 12));
+    try std.testing.expectEqual(3121910778619, 987654321111 + 811111111119 + 434234234278 + 888911112111);
 }
