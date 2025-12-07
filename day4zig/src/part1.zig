@@ -63,7 +63,7 @@ fn count_paper(map: Map) ZigError!usize {
         for (row_chars, 0..) |char_at_col, c_idx| {
             if (char_at_col == '@') {
                 const count = try count_neighbour_paper(map, @as(i32, @intCast(r_idx)), @as(i32, @intCast(c_idx)));
-                if (count > 0) {
+                if (count < 4) {
                     total_count += 1;
                 }
             }
