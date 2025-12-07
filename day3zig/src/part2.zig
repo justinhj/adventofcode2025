@@ -41,7 +41,7 @@ fn max_voltage_n(input: []const u8, n: usize) u64 {
     var start: usize = 0;
 
     while (limit > 0) : (limit -= 1) {
-        const result = max_voltage(input, start, input.len - n);
+        const result = max_voltage(input, start, input.len - (limit - 1));
         start = result.start;
         sum += result.max * multiplier;
         multiplier /= 10;
@@ -89,6 +89,6 @@ test "max_voltage test cases" {
 
     try std.testing.expectEqual(98, max_voltage_n("987654321111111", 2));
     try std.testing.expectEqual(89, max_voltage_n("811111111111119", 2));
-    // try std.testing.expectEqual(@as(u8, 78), max_voltage("234234234234278"));
-    // try std.testing.expectEqual(@as(u8, 92), max_voltage("818181911112111"));
+    try std.testing.expectEqual(78, max_voltage_n("234234234234278", 2));
+    try std.testing.expectEqual(92, max_voltage_n("818181911112111", 2));
 }
