@@ -7,6 +7,7 @@ const ZigError = error{
     ParseFailed,
     OutOfMemory,
     OutOfBounds,
+    NotPaper,
 };
 
 fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
@@ -15,38 +16,6 @@ fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
     _ = it.next(); // skip the executable (first arg)
     const filename = it.next() orelse return ZigError.NoFileSupplied;
     return filename;
-}
-
-const MaxAndStart = struct {
-    max: u64,
-    start: usize,
-};
-
-fn max_voltage(input: []const u8, start: usize, limit: usize) MaxAndStart {
-    var max: u64 = 0;
-    var max_pos: usize = undefined;
-    for (start..limit) |i| {
-        if (input[i] - '0' > max) {
-            max = input[i] - '0';
-            max_pos = i;
-        }
-    }
-    return .{ .max = max, .start = max_pos + 1 }; 
-}
-
-fn max_voltage_n(input: []const u8, n: usize) u64 {
-    var limit: usize = n; 
-    var multiplier = std.math.pow(u64, 10, n - 1);
-    var sum: u64 = 0;
-    var start: usize = 0;
-
-    while (limit > 0) : (limit -= 1) {
-        const result = max_voltage(input, start, input.len - (limit - 1));
-        start = result.start;
-        sum += result.max * multiplier;
-        multiplier /= 10;
-    }
-    return sum;
 }
 
 pub fn main() !void {
@@ -72,29 +41,79 @@ pub fn main() !void {
     defer allocator.free(file_contents);
 
     std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
+
+    // Read into a 2 dimensional array
+    var rows = std.ArrayList([]u8).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
     var it = tokenizeScalar(u8, file_contents, '\n');
-    var sum: u64 = 0;
     while (it.next()) |next| {
-        const mv = max_voltage_n(next, 12);
-        sum += @intCast(mv);
+        const next_copy = try allocator.dupe(u8, next);
+        _ = rows.append(allocator, next_copy) catch return ZigError.OutOfMemory;
     }
-    std.debug.print("Result {d}.\n", .{sum});
+    draw_map(rows);
+    const paper_count = try count_paper(rows);
+    std.debug.print("Result {d}.\n", .{ paper_count });
 }
 
-test "max_voltage test cases" {
-    const expected1: MaxAndStart = .{ .max = 9, .start = 1 };
-    try std.testing.expectEqual(expected1, max_voltage("987654321111111", 0, 13));
-    const expected2: MaxAndStart = .{ .max = 8, .start = 2 };
-    try std.testing.expectEqual(expected2, max_voltage("987654321111111", 1, 13));
+const Map = std.ArrayList([]u8);
 
-    try std.testing.expectEqual(98, max_voltage_n("987654321111111", 2));
-    try std.testing.expectEqual(89, max_voltage_n("811111111111119", 2));
-    try std.testing.expectEqual(78, max_voltage_n("234234234234278", 2));
-    try std.testing.expectEqual(92, max_voltage_n("818181911112111", 2));
+fn count_paper(map: Map) ZigError!usize {
+    var total_count: usize = 0;
 
-    try std.testing.expectEqual(987654321111, max_voltage_n("987654321111111", 12));
-    try std.testing.expectEqual(811111111119, max_voltage_n("811111111111119", 12));
-    try std.testing.expectEqual(434234234278, max_voltage_n("234234234234278", 12));
-    try std.testing.expectEqual(888911112111, max_voltage_n("818181911112111", 12));
-    try std.testing.expectEqual(3121910778619, 987654321111 + 811111111119 + 434234234278 + 888911112111);
+    for (map.items, 0..) |row_chars, r_idx| {
+        for (row_chars, 0..) |char_at_col, c_idx| {
+            if (char_at_col == '@') {
+                const count = try count_neighbour_paper(map, @as(i32, @intCast(r_idx)), @as(i32, @intCast(c_idx)));
+                if (count < 4) {
+                    total_count += 1;
+                }
+            }
+        }
+    }
+    return total_count;
 }
+
+fn draw_map(rows: Map) void {
+    for (rows.items) |row| {
+        std.debug.print("{s}\n", .{row});
+    }
+}
+
+fn count_neighbour_paper(map: Map, row: i32, col: i32) ZigError!usize {
+    // Check if row or col are negative before casting to usize
+    if (row < 0 or col < 0) {
+        return ZigError.OutOfBounds;
+    }
+    // Now safe to cast to usize for comparison with map dimensions
+    const u_row = @as(usize, @intCast(row));
+    const u_col = @as(usize, @intCast(col));
+
+    if (u_row >= map.items.len or u_col >= map.items[u_row].len) {
+        return ZigError.OutOfBounds;
+    }
+
+    if (map.items[u_row][u_col] != '@') return ZigError.NotPaper;
+
+    var count: usize = 0;
+    const directions = [_]i32{ -1, 0, 1 };
+
+    for (directions) |dr| {
+        for (directions) |dc| {
+            if (dr == 0 and dc == 0) continue;
+
+            const r_i32 = @as(i32, @intCast(row)) + dr;
+            const c_i32 = @as(i32, @intCast(col)) + dc;
+
+            if (r_i32 < 0 or r_i32 >= map.items.len) continue;
+            const r = @as(usize, @intCast(r_i32));
+
+            if (c_i32 < 0 or c_i32 >= map.items[r].len) continue;
+            const c = @as(usize, @intCast(c_i32));
+
+            if (map.items[r][c] == '@') {
+                count += 1;
+            }
+        }
+    }
+    return count;
+}
+
