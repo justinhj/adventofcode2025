@@ -104,11 +104,9 @@ fn draw_map(rows: Map) void {
 }
 
 fn count_neighbour_paper(map: Map, row: i32, col: i32) ZigError!usize {
-    // Check if row or col are negative before casting to usize
     if (row < 0 or col < 0) {
         return ZigError.OutOfBounds;
     }
-    // Now safe to cast to usize for comparison with map dimensions
     const u_row = @as(usize, @intCast(row));
     const u_col = @as(usize, @intCast(col));
 
