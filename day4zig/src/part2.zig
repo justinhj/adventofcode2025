@@ -49,27 +49,42 @@ pub fn main() !void {
         const next_copy = try allocator.dupe(u8, next);
         _ = rows.append(allocator, next_copy) catch return ZigError.OutOfMemory;
     }
-    draw_map(rows);
-    const paper_count = try count_paper(rows);
-    std.debug.print("Result {d}.\n", .{ paper_count });
+
+    var removed: usize = 0;
+    while (true) {
+        draw_map(rows);
+        const papers = count_paper(allocator, rows) catch return ZigError.OutOfMemory;
+        removed += papers.len;
+        remove_paper(rows, papers);
+        if (removed == 0) {
+            break;
+        }
+    }
+    std.debug.print("Result {d}.\n", .{ removed });
 }
 
 const Map = std.ArrayList([]u8);
 
-fn count_paper(map: Map) ZigError!usize {
-    var total_count: usize = 0;
+const Paper = struct {
+    row: usize,
+    col: usize,
+};
+
+fn count_paper(allocator: std.mem.Allocator, map: Map) ZigError![]Paper {
+    var list = try std.ArrayList(Paper).initCapacity(allocator, 100);
+    errdefer list.deinit(allocator);
 
     for (map.items, 0..) |row_chars, r_idx| {
         for (row_chars, 0..) |char_at_col, c_idx| {
             if (char_at_col == '@') {
                 const count = try count_neighbour_paper(map, @as(i32, @intCast(r_idx)), @as(i32, @intCast(c_idx)));
                 if (count < 4) {
-                    total_count += 1;
+                    _ = list.append(allocator, Paper{ .row = r_idx, .col = c_idx }) catch return ZigError.OutOfMemory;
                 }
             }
         }
     }
-    return total_count;
+    return list.toOwnedSlice(allocator);
 }
 
 fn draw_map(rows: Map) void {
