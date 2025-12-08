@@ -51,14 +51,18 @@ pub fn main() !void {
     }
 
     var removed: usize = 0;
+    draw_map(rows);
     while (true) {
-        draw_map(rows);
         const papers = count_paper(allocator, rows) catch return ZigError.OutOfMemory;
+        if (papers.len == 0) {
+            break;
+        }
         removed += papers.len;
-        remove_paper(rows, papers);
         if (removed == 0) {
             break;
         }
+        remove_paper(rows, papers);
+        draw_map(rows);
     }
     std.debug.print("Result {d}.\n", .{ removed });
 }
@@ -85,6 +89,12 @@ fn count_paper(allocator: std.mem.Allocator, map: Map) ZigError![]Paper {
         }
     }
     return list.toOwnedSlice(allocator);
+}
+
+fn remove_paper(map: Map, papers: []const Paper) void {
+    for (papers) |paper| {
+        map.items[paper.row][paper.col] = 'x';
+    }
 }
 
 fn draw_map(rows: Map) void {
