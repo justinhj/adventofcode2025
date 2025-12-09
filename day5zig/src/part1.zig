@@ -59,52 +59,7 @@ pub fn main() !void {
 
     std.debug.print("Loaded {d} ranges.\n", .{ranges.items.len});
 
-    var max: u64 = 0;
-
-    if (it.next()) |next| {
-        var it2 = std.mem.tokenizeScalar(u8, next, '\n');
-        while (it2.next()) |numstr| {
-            const num = std.fmt.parseUnsigned(u64, numstr, 10) catch return ZigError.ParseFailed;
-            if (num > max) {
-                max = num;
-            }
-        }
-    }
-
     var ranges_dl: std.DoublyLinkedList = .{};
-
-    // for reference, operations with doubly linked lists
-    // list.append(&two.node); // {2}
-    // list.append(&five.node); // {2, 5}
-    // list.prepend(&one.node); // {1, 2, 5}
-    // list.insertBefore(&five.node, &four.node); // {1, 2, 4, 5}
-    // list.insertAfter(&two.node, &three.node); // {1, 2, 3, 4, 5}
-
-    // // Traverse forwards.
-    // {
-    // var it = list.first;
-    // var index: u32 = 1;
-    // while (it) |node| : (it = node.next) {
-    //     const l: *L = @fieldParentPtr("node", node);
-    //     try testing.expect(l.data == index);
-    //     index += 1;
-    // }
-    // }
-
-    // // Traverse backwards.
-    // {
-    // var it = list.last;
-    // var index: u32 = 1;
-    // while (it) |node| : (it = node.prev) {
-    //     const l: *L = @fieldParentPtr("node", node);
-    //     try testing.expect(l.data == (6 - index));
-    //     index += 1;
-    // }
-    // }
-
-    // _ = list.popFirst(); // {2, 3, 4, 5}
-    // _ = list.pop(); // {2, 3, 4}
-    // list.remove(&three.node); // {2, 4}
 
     // Create a doubly linked list of fresh/not-fresh ranges
     for (ranges.items) |*range| {
@@ -114,17 +69,17 @@ pub fn main() !void {
     // Debug: print the resulting list
     printRangeList(&ranges_dl);
 
-    std.debug.print("Max {d}\n", .{max});
-    // Read into a 2 dimensional array
-    // var rows = std.ArrayList([]u8).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
-    // var it = tokenizeScalar(u8, file_contents, '\n');
-    // while (it.next()) |next| {
-    //     const next_copy = try allocator.dupe(u8, next);
-    //     _ = rows.append(allocator, next_copy) catch return ZigError.OutOfMemory;
-    // }
-    // draw_map(rows);
-    // const paper_count = try count_paper(rows);
-    // std.debug.print("Result {d}.\n", .{ paper_count });
+    var fresh: u64 = 0;
+    if (it.next()) |next| {
+        var it2 = std.mem.tokenizeScalar(u8, next, '\n');
+        while (it2.next()) |numstr| {
+            const num = std.fmt.parseUnsigned(u64, numstr, 10) catch return ZigError.ParseFailed;
+            if (isFresh(&ranges_dl, num)) {
+                fresh += 1;
+            }
+        }
+    }
+    std.debug.print("Fresh count {d}.\n", .{fresh});
 }
 
 const Range = struct {
@@ -155,14 +110,26 @@ fn printRangeList(list: *RangeList) void {
     std.debug.print("\n", .{});
 }
 
+fn isFresh(list: *RangeList, num: u64) bool {
+    var it = list.first;
+    while (it) |node| : (it = node.next) {
+        const range = nodeToRange(node);
+        if (num < range.start) {
+            return false;
+        }
+        if (num >= range.start and num <= range.end) {
+            return range.fresh;
+        }
+    }
+    return false;
+}
+
 fn insertFreshRange(list: *RangeList, new_range: *Range, allocator: std.mem.Allocator) !void {
-    // If list is empty, just append the new range
     if (list.first == null) {
         list.append(&new_range.node);
         return;
     }
 
-    // Find where to insert (first range that starts after or overlaps with new_range)
     var it = list.first;
     var insert_before: ?*RangeList.Node = null;
     var merge_start: ?*RangeList.Node = null;
