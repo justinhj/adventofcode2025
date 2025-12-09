@@ -41,18 +41,28 @@ pub fn main() !void {
 
     std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
 
+    var ranges = std.ArrayList(Range).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
     // Split the two sections of input
     var it = std.mem.tokenizeSequence(u8, file_contents, "\n\n");
     if (it.next()) |next| {
-        std.debug.print("{s}\n------\n", .{ next });
+        // Parse to an array of ranges
+        var it2 = std.mem.tokenizeScalar(u8, next, '\n');
+        while (it2.next()) |next2| {
+            var it3 = std.mem.tokenizeScalar(u8, next2, '-');
+            const start = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
+            const end = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
+            const range = Range { .fresh = true, .start = start, .end = end };    
+            try ranges.append(allocator, range);
+        }
     }
+
+    std.debug.print("Loaded {d} ranges.\n", .{ranges.items.len});
 
     var max: u64 = 0;
 
     if (it.next()) |next| {
         var it2 = std.mem.tokenizeScalar(u8, next, '\n');
         while (it2.next()) |numstr| {
-            // std.debug.print("parsing \"{s}\"\n", .{ numstr });
             const num = std.fmt.parseUnsigned(u64, numstr, 10) catch return ZigError.ParseFailed;
             if (num > max) {
                 max = num;
@@ -72,3 +82,8 @@ pub fn main() !void {
     // std.debug.print("Result {d}.\n", .{ paper_count });
 }
 
+const Range = struct {
+    fresh: bool,
+    start: u64,
+    end: u64,
+};
