@@ -59,6 +59,13 @@ pub fn main() !void {
 
     std.debug.print("Loaded {d} ranges.\n", .{ranges.items.len});
 
+    // Sort ranges by start
+    std.mem.sort(Range, ranges.items, {}, struct {
+        fn lessThan(_: void, a: Range, b: Range) bool {
+            return a.start < b.start;
+        }
+    }.lessThan);
+
     var ranges_dl: std.DoublyLinkedList = .{};
 
     // Create a doubly linked list of fresh/not-fresh ranges
@@ -124,139 +131,43 @@ fn isFresh(list: *RangeList, num: u64) bool {
     return false;
 }
 
+// Assumption is that rangelist is pre-sorted by start
 fn insertFreshRange(list: *RangeList, new_range: *Range, allocator: std.mem.Allocator) !void {
-    if (list.first == null) {
+    if (list.last == null) {
         list.append(&new_range.node);
         return;
     }
 
-    var it = list.first;
-    var insert_before: ?*RangeList.Node = null;
-    var merge_start: ?*RangeList.Node = null;
-    var merge_end: ?*RangeList.Node = null;
+    const last_node = list.last.?;
+    const last_range = nodeToRange(last_node);
 
-    while (it) |node| : (it = node.next) {
-        const range = nodeToRange(node);
-
-        // Check if this range overlaps or is adjacent to new_range
-        if (range.fresh) {
-            // Overlapping or adjacent: new_range.start <= range.end + 1 AND new_range.end + 1 >= range.start
-            if (new_range.start <= range.end + 1 and new_range.end + 1 >= range.start) {
-                if (merge_start == null) {
-                    merge_start = node;
-                }
-                merge_end = node;
-            }
+    // Check if we should merge with the last fresh range
+    if (last_range.fresh) {
+        // Overlapping or adjacent: new_range.start <= last_range.end + 1
+        if (new_range.start <= last_range.end + 1) {
+            // Merge: extend the last range
+            last_range.end = @max(last_range.end, new_range.end);
+            return;
         }
-
-        // Find insertion point (first range that starts after new_range)
-        if (insert_before == null and range.start > new_range.start) {
-            insert_before = node;
-        }
-    }
-
-    // If we found overlapping fresh ranges, merge them
-    if (merge_start != null and merge_end != null) {
-        const first_range = nodeToRange(merge_start.?);
-        const last_range = nodeToRange(merge_end.?);
-
-        // Calculate merged range
-        const merged_start = @min(new_range.start, first_range.start);
-        const merged_end = @max(new_range.end, last_range.end);
-
-        // Update first_range to be the merged range
-        first_range.start = merged_start;
-        first_range.end = merged_end;
-
-        // Remove all nodes between merge_start and merge_end (exclusive of merge_start)
-        var remove_it = merge_start.?.next;
-        while (remove_it) |remove_node| {
-            const next = remove_node.next;
-            if (remove_node == merge_end.?.next) break;
-            list.remove(remove_node);
-            remove_it = next;
-        }
-
-        // Now fix up the not-fresh gaps
-        // Check if we need a not-fresh before the merged range
-        if (merge_start.?.prev) |prev_node| {
-            const prev_range = nodeToRange(prev_node);
-            if (prev_range.fresh) {
-                // Need to insert a not-fresh gap
-                if (prev_range.end + 1 < merged_start) {
-                    const gap = try allocator.create(Range);
-                    gap.* = Range{ .fresh = false, .start = prev_range.end + 1, .end = merged_start - 1 };
-                    list.insertAfter(prev_node, &gap.node);
-                }
-            } else {
-                // Update the existing not-fresh gap
-                prev_range.end = merged_start - 1;
-                if (prev_range.start > prev_range.end) {
-                    list.remove(prev_node);
-                }
-            }
-        }
-
-        // Check if we need a not-fresh after the merged range
-        if (merge_start.?.next) |next_node| {
-            const next_range = nodeToRange(next_node);
-            if (next_range.fresh) {
-                // Need to insert a not-fresh gap
-                if (merged_end + 1 < next_range.start) {
-                    const gap = try allocator.create(Range);
-                    gap.* = Range{ .fresh = false, .start = merged_end + 1, .end = next_range.start - 1 };
-                    list.insertAfter(merge_start.?, &gap.node);
-                }
-            } else {
-                // Update the existing not-fresh gap
-                next_range.start = merged_end + 1;
-                if (next_range.start > next_range.end) {
-                    list.remove(next_node);
-                }
-            }
-        }
-
-        return;
-    }
-
-    // No merge needed - insert the new range and add not-fresh gaps as needed
-    if (insert_before) |before_node| {
-        const before_range = nodeToRange(before_node);
-
-        // Insert new_range before this node
-        list.insertBefore(before_node, &new_range.node);
-
-        // Add not-fresh gap after new_range if needed
-        if (new_range.end + 1 < before_range.start) {
-            const gap_after = try allocator.create(Range);
-            gap_after.* = Range{ .fresh = false, .start = new_range.end + 1, .end = before_range.start - 1 };
-            list.insertAfter(&new_range.node, &gap_after.node);
-        }
-
-        // Check if there's a node before new_range and add gap if needed
-        if (new_range.node.prev) |prev_node| {
-            const prev_range = nodeToRange(prev_node);
-            if (prev_range.fresh and prev_range.end + 1 < new_range.start) {
-                const gap_before = try allocator.create(Range);
-                gap_before.* = Range{ .fresh = false, .start = prev_range.end + 1, .end = new_range.start - 1 };
-                list.insertAfter(prev_node, &gap_before.node);
-            } else if (!prev_range.fresh) {
-                // Update the existing not-fresh gap to end just before new_range
-                prev_range.end = new_range.start - 1;
-            }
-        }
+        // Gap exists - add not-fresh range then the new fresh range
+        const gap = try allocator.create(Range);
+        gap.* = Range{ .fresh = false, .start = last_range.end + 1, .end = new_range.start - 1 };
+        list.append(&gap.node);
+        list.append(&new_range.node);
     } else {
-        // Append at the end
-        const last_node = list.last.?;
-        const last_range = nodeToRange(last_node);
-
-        // Add not-fresh gap before if needed
-        if (last_range.end + 1 < new_range.start) {
-            const gap = try allocator.create(Range);
-            gap.* = Range{ .fresh = false, .start = last_range.end + 1, .end = new_range.start - 1 };
-            list.append(&gap.node);
+        // Last range is not-fresh, check the fresh range before it
+        if (last_node.prev) |prev_node| {
+            const prev_range = nodeToRange(prev_node);
+            // prev_range must be fresh (alternating pattern)
+            if (new_range.start <= prev_range.end + 1) {
+                // Merge with previous fresh range, remove the not-fresh gap
+                prev_range.end = @max(prev_range.end, new_range.end);
+                list.remove(last_node);
+                return;
+            }
         }
-
+        // Update the not-fresh gap to end just before new_range
+        last_range.end = new_range.start - 1;
         list.append(&new_range.node);
     }
 }
