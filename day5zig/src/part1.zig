@@ -1,4 +1,5 @@
 const std = @import("std");
+const DoublyLinkedList = std.DoublyLinkedList;
 const tokenizeScalar = std.mem.tokenizeScalar;
 
 const ZigError = error{
@@ -69,6 +70,15 @@ pub fn main() !void {
             }
         }
     }
+
+    var ranges_dl: std.DoublyLinkedList = .{};
+
+    // Create a doubly linked list of ranges
+    for (ranges.items) |range| {
+        ranges_dl.append(&range.node);
+    }
+
+
     std.debug.print("Max {d}\n", .{ max });
     // Read into a 2 dimensional array
     // var rows = std.ArrayList([]u8).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
@@ -86,4 +96,5 @@ const Range = struct {
     fresh: bool,
     start: u64,
     end: u64,
+    node: DoublyLinkedList.Node = .{},
 };
