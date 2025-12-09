@@ -74,7 +74,7 @@ pub fn main() !void {
     var ranges_dl: std.DoublyLinkedList = .{};
 
     // Create a doubly linked list of ranges
-    for (ranges.items) |range| {
+    for (ranges.items) |*range| {
         ranges_dl.append(&range.node);
     }
 
