@@ -1,4 +1,5 @@
 const std = @import("std");
+const DoublyLinkedList = std.DoublyLinkedList;
 const tokenizeScalar = std.mem.tokenizeScalar;
 
 const ZigError = error{
@@ -7,7 +8,6 @@ const ZigError = error{
     ParseFailed,
     OutOfMemory,
     OutOfBounds,
-    NotPaper,
 };
 
 fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
@@ -42,101 +42,122 @@ pub fn main() !void {
 
     std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
 
-    // Read into a 2 dimensional array
-    var rows = std.ArrayList([]u8).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
-    var it = tokenizeScalar(u8, file_contents, '\n');
-    while (it.next()) |next| {
-        const next_copy = try allocator.dupe(u8, next);
-        _ = rows.append(allocator, next_copy) catch return ZigError.OutOfMemory;
+    var ranges = std.ArrayList(Range).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
+    // Split the two sections of input
+    var it = std.mem.tokenizeSequence(u8, file_contents, "\n\n");
+    if (it.next()) |next| {
+        // Parse to an array of ranges
+        var it2 = std.mem.tokenizeScalar(u8, next, '\n');
+        while (it2.next()) |next2| {
+            var it3 = std.mem.tokenizeScalar(u8, next2, '-');
+            const start = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
+            const end = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
+            const range = Range{ .fresh = true, .start = start, .end = end };
+            try ranges.append(allocator, range);
+        }
     }
 
-    var removed: usize = 0;
-    draw_map(rows);
-    while (true) {
-        const papers = count_paper(allocator, rows) catch return ZigError.OutOfMemory;
-        if (papers.len == 0) {
-            break;
+    std.debug.print("Loaded {d} ranges.\n", .{ranges.items.len});
+
+    // Sort ranges by start
+    std.mem.sort(Range, ranges.items, {}, struct {
+        fn lessThan(_: void, a: Range, b: Range) bool {
+            return a.start < b.start;
         }
-        removed += papers.len;
-        if (removed == 0) {
-            break;
-        }
-        remove_paper(rows, papers);
-        draw_map(rows);
+    }.lessThan);
+
+    var ranges_dl: std.DoublyLinkedList = .{};
+
+    // Create a doubly linked list of fresh/not-fresh ranges
+    for (ranges.items) |*range| {
+        insertFreshRange(&ranges_dl, range, allocator) catch return ZigError.OutOfMemory;
     }
-    std.debug.print("Result {d}.\n", .{ removed });
+
+    // Debug: print the resulting list
+    printRangeList(&ranges_dl);
+
+    // Count total fresh IDs across all fresh ranges
+    const fresh_count = countFreshIds(&ranges_dl);
+    std.debug.print("Total fresh IDs: {d}.\n", .{fresh_count});
 }
 
-const Map = std.ArrayList([]u8);
-
-const Paper = struct {
-    row: usize,
-    col: usize,
+const Range = struct {
+    fresh: bool,
+    start: u64,
+    end: u64,
+    node: DoublyLinkedList.Node = .{},
 };
 
-fn count_paper(allocator: std.mem.Allocator, map: Map) ZigError![]Paper {
-    var list = try std.ArrayList(Paper).initCapacity(allocator, 100);
-    errdefer list.deinit(allocator);
+const RangeList = std.DoublyLinkedList;
 
-    for (map.items, 0..) |row_chars, r_idx| {
-        for (row_chars, 0..) |char_at_col, c_idx| {
-            if (char_at_col == '@') {
-                const count = try count_neighbour_paper(map, @as(i32, @intCast(r_idx)), @as(i32, @intCast(c_idx)));
-                if (count < 4) {
-                    _ = list.append(allocator, Paper{ .row = r_idx, .col = c_idx }) catch return ZigError.OutOfMemory;
-                }
-            }
+fn nodeToRange(node: *RangeList.Node) *Range {
+    return @fieldParentPtr("node", node);
+}
+
+fn printRangeList(list: *RangeList) void {
+    var it = list.first;
+    var first = true;
+    while (it) |node| : (it = node.next) {
+        const range = nodeToRange(node);
+        if (!first) {
+            std.debug.print(" -> ", .{});
+        }
+        first = false;
+        const fresh_str = if (range.fresh) "fresh" else "not fresh";
+        std.debug.print("{s} {d} to {d}", .{ fresh_str, range.start, range.end });
+    }
+    std.debug.print("\n", .{});
+}
+
+fn countFreshIds(list: *RangeList) u64 {
+    var total: u64 = 0;
+    var it = list.first;
+    while (it) |node| : (it = node.next) {
+        const range = nodeToRange(node);
+        if (range.fresh) {
+            total += range.end - range.start + 1;
         }
     }
-    return list.toOwnedSlice(allocator);
+    return total;
 }
 
-fn remove_paper(map: Map, papers: []const Paper) void {
-    for (papers) |paper| {
-        map.items[paper.row][paper.col] = 'x';
-    }
-}
-
-fn draw_map(rows: Map) void {
-    for (rows.items) |row| {
-        std.debug.print("{s}\n", .{row});
-    }
-}
-
-fn count_neighbour_paper(map: Map, row: i32, col: i32) ZigError!usize {
-    if (row < 0 or col < 0) {
-        return ZigError.OutOfBounds;
-    }
-    const u_row = @as(usize, @intCast(row));
-    const u_col = @as(usize, @intCast(col));
-
-    if (u_row >= map.items.len or u_col >= map.items[u_row].len) {
-        return ZigError.OutOfBounds;
+// Assumption is that rangelist is pre-sorted by start
+fn insertFreshRange(list: *RangeList, new_range: *Range, allocator: std.mem.Allocator) !void {
+    if (list.last == null) {
+        list.append(&new_range.node);
+        return;
     }
 
-    if (map.items[u_row][u_col] != '@') return ZigError.NotPaper;
+    const last_node = list.last.?;
+    const last_range = nodeToRange(last_node);
 
-    var count: usize = 0;
-    const directions = [_]i32{ -1, 0, 1 };
-
-    for (directions) |dr| {
-        for (directions) |dc| {
-            if (dr == 0 and dc == 0) continue;
-
-            const r_i32 = @as(i32, @intCast(row)) + dr;
-            const c_i32 = @as(i32, @intCast(col)) + dc;
-
-            if (r_i32 < 0 or r_i32 >= map.items.len) continue;
-            const r = @as(usize, @intCast(r_i32));
-
-            if (c_i32 < 0 or c_i32 >= map.items[r].len) continue;
-            const c = @as(usize, @intCast(c_i32));
-
-            if (map.items[r][c] == '@') {
-                count += 1;
+    // Check if we should merge with the last fresh range
+    if (last_range.fresh) {
+        // Overlapping or adjacent: new_range.start <= last_range.end + 1
+        if (new_range.start <= last_range.end + 1) {
+            // Merge: extend the last range
+            last_range.end = @max(last_range.end, new_range.end);
+            return;
+        }
+        // Gap exists - add not-fresh range then the new fresh range
+        const gap = try allocator.create(Range);
+        gap.* = Range{ .fresh = false, .start = last_range.end + 1, .end = new_range.start - 1 };
+        list.append(&gap.node);
+        list.append(&new_range.node);
+    } else {
+        // Last range is not-fresh, check the fresh range before it
+        if (last_node.prev) |prev_node| {
+            const prev_range = nodeToRange(prev_node);
+            // prev_range must be fresh (alternating pattern)
+            if (new_range.start <= prev_range.end + 1) {
+                // Merge with previous fresh range, remove the not-fresh gap
+                prev_range.end = @max(prev_range.end, new_range.end);
+                list.remove(last_node);
+                return;
             }
         }
+        // Update the not-fresh gap to end just before new_range
+        last_range.end = new_range.start - 1;
+        list.append(&new_range.node);
     }
-    return count;
 }
-
