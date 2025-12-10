@@ -55,24 +55,24 @@ pub fn main() !void {
 
     // Last row is operators
     const ops_line = rows.pop().?;
-    var ops = try std.ArrayList(u8).initCapacity(allocator, 100);
+    var ops = std.ArrayList(u8).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
     var ops_it = tokenizeScalar(u8, ops_line, ' ');
     while (ops_it.next()) |op_token| {
         if (op_token.len > 0) {
-            try ops.append(allocator, op_token[0]);
+            ops.append(allocator, op_token[0]) catch return ZigError.OutOfMemory;
         }
     }
 
     // Remaining rows are numbers
-    var grid = try std.ArrayList(std.ArrayList(u64)).initCapacity(allocator, 100);
+    var grid = std.ArrayList(std.ArrayList(u64)).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
     for (rows.items) |row_str| {
-        var row_nums = try std.ArrayList(u64).initCapacity(allocator, 100);
+        var row_nums = std.ArrayList(u64).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
         var nums_it = tokenizeScalar(u8, row_str, ' ');
         while (nums_it.next()) |num_token| {
-            const num = try std.fmt.parseUnsigned(u64, num_token, 10);
-            try row_nums.append(allocator, num);
+            const num = std.fmt.parseUnsigned(u64, num_token, 10) catch return ZigError.OutOfMemory;
+            row_nums.append(allocator, num) catch return ZigError.OutOfMemory;
         }
-        try grid.append(allocator, row_nums);
+        grid.append(allocator, row_nums) catch return ZigError.OutOfMemory;
     }
 
     // Process column calculations and aggregate
