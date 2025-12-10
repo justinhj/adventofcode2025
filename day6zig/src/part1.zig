@@ -48,5 +48,50 @@ pub fn main() !void {
         rows.append(allocator, next) catch return ZigError.OutOfMemory;
     }
 
-    std.debug.print("Loaded {d} rows.\n", .{rows.items.len});
+    if (rows.items.len < 2) {
+        std.debug.print("Input too short.\n", .{});
+        return;
+    }
+
+    // Last row is operators
+    const ops_line = rows.pop().?;
+    var ops = try std.ArrayList(u8).initCapacity(allocator, 100);
+    var ops_it = tokenizeScalar(u8, ops_line, ' ');
+    while (ops_it.next()) |op_token| {
+        if (op_token.len > 0) {
+            try ops.append(allocator, op_token[0]);
+        }
+    }
+
+    // Remaining rows are numbers
+    var grid = try std.ArrayList(std.ArrayList(u64)).initCapacity(allocator, 100);
+    for (rows.items) |row_str| {
+        var row_nums = try std.ArrayList(u64).initCapacity(allocator, 100);
+        var nums_it = tokenizeScalar(u8, row_str, ' ');
+        while (nums_it.next()) |num_token| {
+            const num = try std.fmt.parseUnsigned(u64, num_token, 10);
+            try row_nums.append(allocator, num);
+        }
+        try grid.append(allocator, row_nums);
+    }
+
+    // Process column calculations and aggregate
+    var total_sum: u64 = 0;
+    for (ops.items, 0..) |op, col_idx| {
+        var col_val: u64 = if (op == '*') 1 else 0;
+        
+        for (grid.items) |row| {
+            if (col_idx < row.items.len) {
+                const val = row.items[col_idx];
+                if (op == '*') {
+                    col_val *= val;
+                } else if (op == '+') {
+                    col_val += val;
+                }
+            }
+        }
+        total_sum += col_val;
+    }
+
+    std.debug.print("Solution: {d}\n", .{total_sum});
 }
