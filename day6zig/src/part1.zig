@@ -1,5 +1,4 @@
 const std = @import("std");
-const DoublyLinkedList = std.DoublyLinkedList;
 const tokenizeScalar = std.mem.tokenizeScalar;
 
 const ZigError = error{
@@ -41,4 +40,13 @@ pub fn main() !void {
     defer allocator.free(file_contents);
 
     std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
+
+    var it = tokenizeScalar(u8, file_contents, '\n');
+    var rows = std.ArrayList([]const u8).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
+
+    while (it.next()) |next| {
+        rows.append(allocator, next) catch return ZigError.OutOfMemory;
+    }
+
+    std.debug.print("Loaded {d} rows.\n", .{rows.items.len});
 }
