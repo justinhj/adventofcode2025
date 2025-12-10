@@ -1,5 +1,4 @@
 const std = @import("std");
-const DoublyLinkedList = std.DoublyLinkedList;
 const tokenizeScalar = std.mem.tokenizeScalar;
 
 const ZigError = error{
@@ -21,9 +20,8 @@ fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    // Note the arena allocator is convenient here because we don't free
-    // anything until the end, it simplifies the freeing.
     const allocator = arena.allocator();
+
     const input_file_name = getInputFileNameArg(allocator) catch {
         std.debug.print("Please pass a file path to the input.\n", .{});
         return;
@@ -38,126 +36,103 @@ pub fn main() !void {
 
     const max_file_size = 100 * 1024; // 100 kb
     const file_contents = try file.readToEndAlloc(allocator, max_file_size);
-    defer allocator.free(file_contents);
+    // No need to free file_contents explicitly as we use ArenaAllocator
 
-    std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
-
-    var ranges = std.ArrayList(Range).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
-    // Split the two sections of input
-    var it = std.mem.tokenizeSequence(u8, file_contents, "\n\n");
-    if (it.next()) |next| {
-        // Parse to an array of ranges
-        var it2 = std.mem.tokenizeScalar(u8, next, '\n');
-        while (it2.next()) |next2| {
-            var it3 = std.mem.tokenizeScalar(u8, next2, '-');
-            const start = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
-            const end = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
-            const range = Range{ .fresh = true, .start = start, .end = end };
-            try ranges.append(allocator, range);
-        }
+    // 1. Split into rows
+    var rows = try std.ArrayList([]const u8).initCapacity(allocator, 100);
+    var it = tokenizeScalar(u8, file_contents, '\n');
+    while (it.next()) |row| {
+        try rows.append(allocator, row);
     }
 
-    std.debug.print("Loaded {d} ranges.\n", .{ranges.items.len});
-
-    // Sort ranges by start
-    std.mem.sort(Range, ranges.items, {}, struct {
-        fn lessThan(_: void, a: Range, b: Range) bool {
-            return a.start < b.start;
-        }
-    }.lessThan);
-
-    var ranges_dl: std.DoublyLinkedList = .{};
-
-    // Create a doubly linked list of fresh/not-fresh ranges
-    for (ranges.items) |*range| {
-        insertFreshRange(&ranges_dl, range, allocator) catch return ZigError.OutOfMemory;
-    }
-
-    // Debug: print the resulting list
-    printRangeList(&ranges_dl);
-
-    // Count total fresh IDs across all fresh ranges
-    const fresh_count = countFreshIds(&ranges_dl);
-    std.debug.print("Total fresh IDs: {d}.\n", .{fresh_count});
-}
-
-const Range = struct {
-    fresh: bool,
-    start: u64,
-    end: u64,
-    node: DoublyLinkedList.Node = .{},
-};
-
-const RangeList = std.DoublyLinkedList;
-
-fn nodeToRange(node: *RangeList.Node) *Range {
-    return @fieldParentPtr("node", node);
-}
-
-fn printRangeList(list: *RangeList) void {
-    var it = list.first;
-    var first = true;
-    while (it) |node| : (it = node.next) {
-        const range = nodeToRange(node);
-        if (!first) {
-            std.debug.print(" -> ", .{});
-        }
-        first = false;
-        const fresh_str = if (range.fresh) "fresh" else "not fresh";
-        std.debug.print("{s} {d} to {d}", .{ fresh_str, range.start, range.end });
-    }
-    std.debug.print("\n", .{});
-}
-
-fn countFreshIds(list: *RangeList) u64 {
-    var total: u64 = 0;
-    var it = list.first;
-    while (it) |node| : (it = node.next) {
-        const range = nodeToRange(node);
-        if (range.fresh) {
-            total += range.end - range.start + 1;
-        }
-    }
-    return total;
-}
-
-// Assumption is that rangelist is pre-sorted by start
-fn insertFreshRange(list: *RangeList, new_range: *Range, allocator: std.mem.Allocator) !void {
-    if (list.last == null) {
-        list.append(&new_range.node);
+    if (rows.items.len < 2) {
+        std.debug.print("Input too short.\n", .{});
         return;
     }
 
-    const last_node = list.last.?;
-    const last_range = nodeToRange(last_node);
+    // 2. Determine grid dimensions
+    var max_width: usize = 0;
+    for (rows.items) |row| {
+        if (row.len > max_width) max_width = row.len;
+    }
+    
+    // 3. Process columns
+    var total_sum: u64 = 0;
+    var current_block_cols = try std.ArrayList(usize).initCapacity(allocator, 20);
 
-    // Check if we should merge with the last fresh range
-    if (last_range.fresh) {
-        // Overlapping or adjacent: new_range.start <= last_range.end + 1
-        if (new_range.start <= last_range.end + 1) {
-            // Merge: extend the last range
-            last_range.end = @max(last_range.end, new_range.end);
-            return;
+    var col_idx: usize = 0;
+    while (col_idx < max_width) : (col_idx += 1) {
+        if (isSeparatorColumn(rows.items, col_idx)) {
+            if (current_block_cols.items.len > 0) {
+                const block_val = try processBlock(allocator, rows.items, current_block_cols.items);
+                total_sum += block_val;
+                current_block_cols.clearRetainingCapacity();
+            }
+        } else {
+            try current_block_cols.append(allocator, col_idx);
         }
-        // Gap exists - add not-fresh range then the new fresh range
-        const gap = try allocator.create(Range);
-        gap.* = Range{ .fresh = false, .start = last_range.end + 1, .end = new_range.start - 1 };
-        list.append(&gap.node);
-        list.append(&new_range.node);
-    } else {
-        // Last range is not-fresh, check the fresh range before it
-        if (last_node.prev) |prev_node| {
-            const prev_range = nodeToRange(prev_node);
-            // prev_range must be fresh (alternating pattern)
-            if (new_range.start <= prev_range.end + 1) {
-                // Merge with previous fresh range, remove the not-fresh gap
-                prev_range.end = @max(prev_range.end, new_range.end);
-                list.remove(last_node);
-                return;
+    }
+    // Process final block if exists
+    if (current_block_cols.items.len > 0) {
+        const block_val = try processBlock(allocator, rows.items, current_block_cols.items);
+        total_sum += block_val;
+    }
+
+    std.debug.print("Solution: {d}\n", .{total_sum});
+}
+
+fn getChar(rows: [][]const u8, row: usize, col: usize) u8 {
+    if (row >= rows.len) return ' ';
+    const r = rows[row];
+    if (col >= r.len) return ' ';
+    return r[col];
+}
+
+fn isSeparatorColumn(rows: [][]const u8, col: usize) bool {
+    for (0..rows.len) |r| {
+        if (getChar(rows, r, col) != ' ') return false;
+    }
+    return true;
+}
+
+fn processBlock(allocator: std.mem.Allocator, rows: [][]const u8, cols: []const usize) !u64 {
+    // Find operator in the last row
+    const last_row_idx = rows.len - 1;
+    var op: u8 = 0; // 0 means not found yet
+    
+    // The operator might be in any of the columns of this block in the last row
+    for (cols) |c| {
+        const char = getChar(rows, last_row_idx, c);
+        if (char == '+' or char == '*') {
+            op = char;
+            break;
+        }
+    }
+    
+    std.debug.assert(op != 0);
+    var result: u64 = if (op == '*') 1 else 0;
+
+    for (cols) |c| {
+        var num_str = try std.ArrayList(u8).initCapacity(allocator, 20);
+        defer num_str.deinit(allocator);
+
+        // Rows 0 to last_row_idx - 1 are digits
+        for (0..last_row_idx) |r| {
+            const char = getChar(rows, r, c);
+            if (std.ascii.isDigit(char)) {
+                try num_str.append(allocator, char);
             }
         }
-        // Update the not-fresh gap to end just before new_range
-        last_range.end = new_range.start - 1;
-        list.append(&new_range.node);
+
+        if (num_str.items.len > 0) {
+            const num = try std.fmt.parseUnsigned(u64, num_str.items, 10);
+            if (op == '*') {
+                result *= num;
+            } else {
+                result += num;
+            }
+        }
     }
+
+    return result;
 }
