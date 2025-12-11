@@ -1,0 +1,23 @@
+.{
+    .name = .aoc2025,
+    .version = "0.0.0",
+    .fingerprint = 0x52176dd525b51d34,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "common",
+        "day1zig",
+        "day2zig",
+        "day3zig",
+        "day4zig",
+        "day5zig",
+        "day6zig",
+        "day7zig",
+        "day8zig",
+        "day9zig",
+        "day10zig",
+        "day11zig",
+        "day12zig",
+    },
+}
