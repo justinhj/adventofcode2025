@@ -1,21 +1,6 @@
 const std = @import("std");
+const aoc_utils = @import("aoc_utils");
 const tokenizeScalar = std.mem.tokenizeScalar;
-
-const ZigError = error{
-    NoFileSupplied,
-    FileNotFound,
-    ParseFailed,
-    OutOfMemory,
-    OutOfBounds,
-};
-
-fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
-    var it = try std.process.argsWithAllocator(allocator);
-    defer it.deinit();
-    _ = it.next(); // skip the executable (first arg)
-    const filename = it.next() orelse return ZigError.NoFileSupplied;
-    return filename;
-}
 
 const MaxAndStart = struct {
     max: u64,
@@ -31,11 +16,11 @@ fn max_voltage(input: []const u8, start: usize, limit: usize) MaxAndStart {
             max_pos = i;
         }
     }
-    return .{ .max = max, .start = max_pos + 1 }; 
+    return .{ .max = max, .start = max_pos + 1 };
 }
 
 fn max_voltage_n(input: []const u8, n: usize) u64 {
-    var limit: usize = n; 
+    var limit: usize = n;
     var multiplier = std.math.pow(u64, 10, n - 1);
     var sum: u64 = 0;
     var start: usize = 0;
@@ -52,26 +37,12 @@ fn max_voltage_n(input: []const u8, n: usize) u64 {
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    // Note the arena allocator is convenient here because we don't free
-    // anything until the end, it simplifies the freeing.
     const allocator = arena.allocator();
-    const input_file_name = getInputFileNameArg(allocator) catch {
-        std.debug.print("Please pass a file path to the input.\n", .{});
+
+    const file_contents = aoc_utils.getAndLoadInput(allocator) catch {
         return;
     };
-    std.debug.print("Processing file {s}.\n", .{input_file_name});
 
-    const open_flags = std.fs.File.OpenFlags{ .mode = .read_only };
-    const file = std.fs.cwd().openFile(input_file_name, open_flags) catch {
-        return ZigError.FileNotFound;
-    };
-    defer file.close();
-
-    const max_file_size = 100 * 1024; // 100 kb
-    const file_contents = try file.readToEndAlloc(allocator, max_file_size);
-    defer allocator.free(file_contents);
-
-    std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
     var it = tokenizeScalar(u8, file_contents, '\n');
     var sum: u64 = 0;
     while (it.next()) |next| {

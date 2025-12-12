@@ -1,48 +1,27 @@
 const std = @import("std");
+const aoc_utils = @import("aoc_utils");
 const DoublyLinkedList = std.DoublyLinkedList;
 const tokenizeScalar = std.mem.tokenizeScalar;
 
-const ZigError = error{
-    NoFileSupplied,
-    FileNotFound,
+// Custom errors for this day's problem
+const DayError = error{
     ParseFailed,
-    OutOfMemory,
     OutOfBounds,
 };
 
-fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
-    var it = try std.process.argsWithAllocator(allocator);
-    defer it.deinit();
-    _ = it.next(); // skip the executable (first arg)
-    const filename = it.next() orelse return ZigError.NoFileSupplied;
-    return filename;
-}
+// Merge with common errors
+const AllErrors = aoc_utils.AocError || DayError;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    // Note the arena allocator is convenient here because we don't free
-    // anything until the end, it simplifies the freeing.
     const allocator = arena.allocator();
-    const input_file_name = getInputFileNameArg(allocator) catch {
-        std.debug.print("Please pass a file path to the input.\n", .{});
+
+    const file_contents = aoc_utils.getAndLoadInput(allocator) catch {
         return;
     };
-    std.debug.print("Processing file {s}.\n", .{input_file_name});
 
-    const open_flags = std.fs.File.OpenFlags{ .mode = .read_only };
-    const file = std.fs.cwd().openFile(input_file_name, open_flags) catch {
-        return ZigError.FileNotFound;
-    };
-    defer file.close();
-
-    const max_file_size = 100 * 1024; // 100 kb
-    const file_contents = try file.readToEndAlloc(allocator, max_file_size);
-    defer allocator.free(file_contents);
-
-    std.debug.print("Loaded input. {d} bytes.\n", .{file_contents.len});
-
-    var ranges = std.ArrayList(Range).initCapacity(allocator, 100) catch return ZigError.OutOfMemory;
+    var ranges = std.ArrayList(Range).initCapacity(allocator, 100) catch return aoc_utils.AocError.OutOfMemory;
     // Split the two sections of input
     var it = std.mem.tokenizeSequence(u8, file_contents, "\n\n");
     if (it.next()) |next| {
@@ -50,8 +29,8 @@ pub fn main() !void {
         var it2 = std.mem.tokenizeScalar(u8, next, '\n');
         while (it2.next()) |next2| {
             var it3 = std.mem.tokenizeScalar(u8, next2, '-');
-            const start = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
-            const end = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return ZigError.ParseFailed;
+            const start = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return DayError.ParseFailed;
+            const end = std.fmt.parseUnsigned(u64, it3.next().?, 10) catch return DayError.ParseFailed;
             const range = Range{ .fresh = true, .start = start, .end = end };
             try ranges.append(allocator, range);
         }
@@ -70,7 +49,7 @@ pub fn main() !void {
 
     // Create a doubly linked list of fresh/not-fresh ranges
     for (ranges.items) |*range| {
-        insertFreshRange(&ranges_dl, range, allocator) catch return ZigError.OutOfMemory;
+        insertFreshRange(&ranges_dl, range, allocator) catch return aoc_utils.AocError.OutOfMemory;
     }
 
     // Debug: print the resulting list
@@ -80,7 +59,7 @@ pub fn main() !void {
     if (it.next()) |next| {
         var it2 = std.mem.tokenizeScalar(u8, next, '\n');
         while (it2.next()) |numstr| {
-            const num = std.fmt.parseUnsigned(u64, numstr, 10) catch return ZigError.ParseFailed;
+            const num = std.fmt.parseUnsigned(u64, numstr, 10) catch return DayError.ParseFailed;
             if (isFresh(&ranges_dl, num)) {
                 fresh += 1;
             }

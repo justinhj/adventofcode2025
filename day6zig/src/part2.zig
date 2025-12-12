@@ -1,42 +1,24 @@
 const std = @import("std");
+const aoc_utils = @import("aoc_utils");
 const tokenizeScalar = std.mem.tokenizeScalar;
 
-const ZigError = error{
-    NoFileSupplied,
-    FileNotFound,
+// Custom errors for this day's problem
+const DayError = error{
     ParseFailed,
-    OutOfMemory,
     OutOfBounds,
 };
 
-fn getInputFileNameArg(allocator: std.mem.Allocator) ZigError![]const u8 {
-    var it = try std.process.argsWithAllocator(allocator);
-    defer it.deinit();
-    _ = it.next(); // skip the executable (first arg)
-    const filename = it.next() orelse return ZigError.NoFileSupplied;
-    return filename;
-}
+// Merge with common errors
+const AllErrors = aoc_utils.AocError || DayError;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const input_file_name = getInputFileNameArg(allocator) catch {
-        std.debug.print("Please pass a file path to the input.\n", .{});
+    const file_contents = aoc_utils.getAndLoadInput(allocator) catch {
         return;
     };
-    std.debug.print("Processing file {s}.\n", .{input_file_name});
-
-    const open_flags = std.fs.File.OpenFlags{ .mode = .read_only };
-    const file = std.fs.cwd().openFile(input_file_name, open_flags) catch {
-        return ZigError.FileNotFound;
-    };
-    defer file.close();
-
-    const max_file_size = 100 * 1024; // 100 kb
-    const file_contents = try file.readToEndAlloc(allocator, max_file_size);
-    // No need to free file_contents explicitly as we use ArenaAllocator
 
     // 1. Split into rows
     var rows = try std.ArrayList([]const u8).initCapacity(allocator, 100);
@@ -55,7 +37,7 @@ pub fn main() !void {
     for (rows.items) |row| {
         if (row.len > max_width) max_width = row.len;
     }
-    
+
     // 3. Process columns
     var total_sum: u64 = 0;
     var current_block_cols = try std.ArrayList(usize).initCapacity(allocator, 20);
@@ -99,7 +81,7 @@ fn processBlock(allocator: std.mem.Allocator, rows: [][]const u8, cols: []const 
     // Find operator in the last row
     const last_row_idx = rows.len - 1;
     var op: u8 = 0; // 0 means not found yet
-    
+
     // The operator might be in any of the columns of this block in the last row
     for (cols) |c| {
         const char = getChar(rows, last_row_idx, c);
@@ -108,7 +90,7 @@ fn processBlock(allocator: std.mem.Allocator, rows: [][]const u8, cols: []const 
             break;
         }
     }
-    
+
     std.debug.assert(op != 0);
     var result: u64 = if (op == '*') 1 else 0;
 
