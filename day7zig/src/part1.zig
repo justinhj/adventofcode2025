@@ -2,10 +2,11 @@ const std = @import("std");
 const aoc_utils = @import("aoc_utils");
 
 fn printTree(grid: std.ArrayList([]u8)) void {
+    // Clear screen and move to top-left
+    std.debug.print("\x1B[2J\x1B[H", .{});
     for (grid.items) |row| {
         std.debug.print("{s}\n", .{row});
     }
-    std.debug.print("\n", .{});
 }
 
 const Update = struct {
@@ -99,6 +100,7 @@ pub fn main() !void {
     var split_count: u32 = 0;
     while (try updateTree(allocator, grid, &split_count)) {
         printTree(grid);
+        std.Thread.sleep(5 * std.time.ns_per_ms);
     }
 
     std.debug.print("Split count: {d}\n", .{split_count});
