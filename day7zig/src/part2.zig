@@ -1,71 +1,87 @@
 const std = @import("std");
 const aoc_utils = @import("aoc_utils");
 
-fn printTree(grid: std.ArrayList([]u8)) void {
-    // Clear screen and move to top-left
-    std.debug.print("\x1B[2J\x1B[H", .{});
-    for (grid.items) |row| {
-        std.debug.print("{s}\n", .{row});
-    }
-}
-
-const Update = struct {
+const BeamState = struct {
     r: usize,
     c: usize,
-    char: u8,
 };
 
-fn updateTree(allocator: std.mem.Allocator, grid: std.ArrayList([]u8), split_count: *u32) !bool {
-    var updates = std.ArrayList(Update).initCapacity(allocator, 16) catch return false;
-    defer updates.deinit(allocator);
+const Position = struct {
+    r: usize,
+    c: usize,
 
-    const rows = grid.items.len;
-    if (rows == 0) return false;
-    const cols = grid.items[0].len;
+    pub fn hash(self: Position) u64 {
+        return (@as(u64, self.r) << 32) | @as(u64, self.c);
+    }
 
-    for (0..rows - 1) |y| {
-        for (0..cols) |x| {
-            const current = grid.items[y][x];
-            
-            if (current == 'S') {
-                if (grid.items[y + 1][x] == '.') {
-                    try updates.append(allocator, .{ .r = y + 1, .c = x, .char = '|' });
-                }
-            } else if (current == '|') {
-                const below = grid.items[y + 1][x];
-                if (below == '.') {
-                    try updates.append(allocator, .{ .r = y + 1, .c = x, .char = '|' });
-                } else if (below == '^') {
-                    var did_split = false;
-                    // Check left
-                    if (x > 0) {
-                        if (grid.items[y + 1][x - 1] == '.') {
-                            try updates.append(allocator, .{ .r = y + 1, .c = x - 1, .char = '|' });
-                            did_split = true;
-                        }
-                    }
-                    // Check right
-                    if (x < cols - 1) {
-                        if (grid.items[y + 1][x + 1] == '.') {
-                            try updates.append(allocator, .{ .r = y + 1, .c = x + 1, .char = '|' });
-                            did_split = true;
-                        }
-                    }
-                    if (did_split) {
-                        split_count.* += 1;
-                    }
-                }
+    pub fn eql(self: Position, other: Position) bool {
+        return self.r == other.r and self.c == other.c;
+    }
+};
+
+fn countPathsFromPosition(
+    allocator: std.mem.Allocator,
+    grid: []const []const u8,
+    start: BeamState,
+    memo: *std.AutoHashMap(Position, u64),
+) !u64 {
+    const rows = grid.len;
+    const cols = if (rows > 0) grid[0].len else 0;
+
+    var current = start;
+
+    // Move down until we hit a split or reach the bottom
+    while (current.r < rows - 1) {
+        const below_r = current.r + 1;
+        const below_c = current.c;
+        const below = grid[below_r][below_c];
+
+        if (below == '.') {
+            // Continue straight down
+            current.r = below_r;
+        } else if (below == '^') {
+            // Check memo first
+            const split_pos = Position{ .r = below_r, .c = below_c };
+            if (memo.get(split_pos)) |cached| {
+                return cached;
             }
+
+            // We hit a splitter! Count paths for both choices
+            var path_count: u64 = 0;
+
+            // Try going left
+            if (current.c > 0 and grid[below_r][current.c - 1] == '.') {
+                const left_count = try countPathsFromPosition(
+                    allocator,
+                    grid,
+                    .{ .r = below_r, .c = current.c - 1 },
+                    memo,
+                );
+                path_count += left_count;
+            }
+
+            // Try going right
+            if (current.c < cols - 1 and grid[below_r][current.c + 1] == '.') {
+                const right_count = try countPathsFromPosition(
+                    allocator,
+                    grid,
+                    .{ .r = below_r, .c = current.c + 1 },
+                    memo,
+                );
+                path_count += right_count;
+            }
+
+            // Cache the result
+            try memo.put(split_pos, path_count);
+            return path_count;
+        } else {
+            // Hit something else (another beam or obstacle), this path ends
+            return 0;
         }
     }
 
-    if (updates.items.len == 0) return false;
-
-    for (updates.items) |u| {
-        grid.items[u.r][u.c] = u.char;
-    }
-
-    return true;
+    // Reached the bottom - this is one complete path
+    return 1;
 }
 
 pub fn main() !void {
@@ -89,19 +105,40 @@ pub fn main() !void {
     while (line_it.next()) |line| {
         const trimmed = std.mem.trimRight(u8, line, "\r");
         if (trimmed.len == 0) continue;
-        
-        // Create a mutable copy of the row
+
         const row = try allocator.dupe(u8, trimmed);
         try grid.append(allocator, row);
     }
 
-    printTree(grid);
-
-    var split_count: u32 = 0;
-    while (try updateTree(allocator, grid, &split_count)) {
-        printTree(grid);
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+    // Find starting position (S)
+    var start_r: usize = 0;
+    var start_c: usize = 0;
+    for (grid.items, 0..) |row, r| {
+        for (row, 0..) |cell, c| {
+            if (cell == 'S') {
+                start_r = r;
+                start_c = c;
+                break;
+            }
+        }
     }
 
-    std.debug.print("Split count: {d}\n", .{split_count});
+    // Convert grid to const for passing to recursive function
+    var const_grid = std.ArrayList([]const u8).initCapacity(allocator, grid.items.len) catch return;
+    defer const_grid.deinit(allocator);
+    for (grid.items) |row| {
+        try const_grid.append(allocator, row);
+    }
+
+    var memo = std.AutoHashMap(Position, u64).init(allocator);
+    defer memo.deinit();
+
+    const total_paths = try countPathsFromPosition(
+        allocator,
+        const_grid.items,
+        .{ .r = start_r, .c = start_c },
+        &memo,
+    );
+
+    std.debug.print("Total number of paths: {d}\n", .{total_paths});
 }
