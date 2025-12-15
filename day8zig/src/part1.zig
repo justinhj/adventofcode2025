@@ -137,7 +137,8 @@ pub fn main() !void {
     var dsu = try DisjointSet.init(allocator, n);
     defer dsu.deinit();
 
-    const LIMIT = 1000; // Hardcoded requirement from problem
+    // Example result is after 10 so hard code that if this is not the input.
+    const LIMIT = if (points.items.len == 1000 ) points.items.len else 10;
     const operations = @min(LIMIT, connections.items.len);
 
     std.debug.print("Processing top {d} shortest connections...\n", .{operations});
@@ -174,9 +175,9 @@ pub fn main() !void {
     // Sort sizes descending
     std.mem.sort(u64, final_sizes.items, {}, std.sort.desc(u64));
 
-    std.debug.print("Top circuit sizes: ", .{});
-    for (0..@min(5, final_sizes.items.len)) |i| {
-        std.debug.print("{d} ", .{final_sizes.items[i]});
+    std.debug.print("All circuit sizes ({d} circuits): ", .{final_sizes.items.len});
+    for (final_sizes.items) |size| {
+        std.debug.print("{d} ", .{size});
     }
     std.debug.print("\n", .{});
 
