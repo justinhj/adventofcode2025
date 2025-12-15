@@ -1,39 +1,88 @@
 const std = @import("std");
-const tokenizeScalar = std.mem.tokenizeScalar;
 const aoc_utils = @import("aoc_utils");
-const AocError = aoc_utils.AocError;
-const Order = std.math.Order;
-const PriorityQueue = std.PriorityQueue;
 
-const Day8Error = error{
-    ParseError,
-} || AocError;
+const Day8Error = error{ ParseError } || std.mem.Allocator.Error;
 
-const CircuitEntry = struct {
-    vector: [3]i64,
-    index: u64,
-};
+// 1. Store indices directly, no need for vectors here
+const Connection = struct {
+    u: usize,
+    v: usize,
+    dist_sq: u64,
 
-const CircuitDistance = struct {
-    vec1: [3]i64,
-    vec2: [3]i64,
-    sqr_distance: u64,
-};
-
-// Calculate squared Euclidean distance between two 3D vectors
-fn sqrDist(vec1: [3]i64, vec2: [3]i64) u64 {
-    var sum: u64 = 0;
-    for (0..3) |i| {
-        const diff = vec1[i] - vec2[i];
-        sum += @intCast(@as(i128, diff) * @as(i128, diff));
+    // Sorting predicate for std.mem.sort
+    pub fn lessThan(_: void, a: Connection, b: Connection) bool {
+        return a.dist_sq < b.dist_sq;
     }
-    return sum;
-}
+};
 
-// Comparison function for priority queue - minimize sqr_distance
-fn distLessThan(context: void, a: CircuitDistance, b: CircuitDistance) Order {
-    _ = context;
-    return std.math.order(a.sqr_distance, b.sqr_distance);
+const Point = struct {
+    x: i64,
+    y: i64,
+    z: i64,
+};
+
+// 2. Standard Union-Find (Disjoint Set Union) Data Structure
+// This effectively manages the "circuits"
+const DisjointSet = struct {
+    parent: []usize,
+    size: []u64,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, count: usize) !DisjointSet {
+        const parent = try allocator.alloc(usize, count);
+        const size = try allocator.alloc(u64, count);
+        
+        for (0..count) |i| {
+            parent[i] = i;
+            size[i] = 1;
+        }
+
+        return DisjointSet{
+            .parent = parent,
+            .size = size,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *DisjointSet) void {
+        self.allocator.free(self.parent);
+        self.allocator.free(self.size);
+    }
+
+    // Find the representative (root) of the set, with path compression
+    pub fn find(self: *DisjointSet, i: usize) usize {
+        if (self.parent[i] == i) return i;
+        self.parent[i] = self.find(self.parent[i]); // Path compression
+        return self.parent[i];
+    }
+
+    // Merge two sets. Returns true if they were merged, false if already same set.
+    pub fn unionSets(self: *DisjointSet, i: usize, j: usize) bool {
+        const root_i = self.find(i);
+        const root_j = self.find(j);
+
+        if (root_i != root_j) {
+            // Union by size: attach smaller tree to larger tree
+            if (self.size[root_i] < self.size[root_j]) {
+                self.parent[root_i] = root_j;
+                self.size[root_j] += self.size[root_i];
+            } else {
+                self.parent[root_j] = root_i;
+                self.size[root_i] += self.size[root_j];
+            }
+            return true;
+        }
+        return false;
+    }
+};
+
+fn sqrDist(a: Point, b: Point) u64 {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const dz = a.z - b.z;
+    // Use @intCast to ensure we don't overflow before casting to u64, 
+    // though dist_sq will fit in u64 unless coordinates are massive.
+    return @intCast(dx * dx + dy * dy + dz * dz);
 }
 
 pub fn main() !void {
@@ -41,164 +90,102 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const file_contents = aoc_utils.getAndLoadInput(allocator) catch return Day8Error.FileNotFound;
+    // -- Parsing --
+    const file_contents = try aoc_utils.getAndLoadInput(allocator);
+    var points = std.ArrayList(Point).initCapacity(allocator, 1000) catch return Day8Error.OutOfMemory;
+    
+    var line_it = std.mem.tokenizeScalar(u8, file_contents, '\n');
+    while (line_it.next()) |line| {
+        var num_it = std.mem.tokenizeScalar(u8, line, ',');
+        const x_str = num_it.next() orelse continue;
+        const y_str = num_it.next() orelse continue;
+        const z_str = num_it.next() orelse continue;
 
-    std.debug.print("Day 8 Part 1 - File size: {d} bytes\n", .{file_contents.len});
-
-    // Parse into CircuitEntry structs with index = maxInt (unassigned)
-    var entries = std.ArrayList(CircuitEntry).initCapacity(allocator, 100) catch return Day8Error.OutOfMemory;
-    var it = tokenizeScalar(u8, file_contents, '\n');
-    while (it.next()) |line| {
-        var it2 = tokenizeScalar(u8, line, ',');
-        var vector: [3]i64 = undefined;
-        var col: usize = 0;
-        while (it2.next()) |num_str| : (col += 1) {
-            if (col >= 3) break;
-            vector[col] = std.fmt.parseInt(i64, num_str, 10) catch return Day8Error.ParseError;
-        }
-        if (col == 3) {
-            entries.append(allocator, CircuitEntry{
-                .vector = vector,
-                .index = std.math.maxInt(u64),
-            }) catch return Day8Error.OutOfMemory;
-        }
+        points.append(allocator, Point{
+            .x = try std.fmt.parseInt(i64, x_str, 10),
+            .y = try std.fmt.parseInt(i64, y_str, 10),
+            .z = try std.fmt.parseInt(i64, z_str, 10),
+        }) catch return Day8Error.OutOfMemory;
     }
 
-    std.debug.print("Parsed {d} entries.\n", .{entries.items.len});
+    std.debug.print("Parsed {d} points.\n", .{points.items.len});
 
-    // Create HashMap for vector -> entry index lookup
-    const VectorHashContext = struct {
-        pub fn hash(self: @This(), key: [3]i64) u64 {
-            _ = self;
-            var h: u64 = 0;
-            for (key) |v| {
-                h = h *% 31 +% @as(u64, @bitCast(v));
-            }
-            return h;
-        }
-        pub fn eql(self: @This(), a: [3]i64, b: [3]i64) bool {
-            _ = self;
-            return a[0] == b[0] and a[1] == b[1] and a[2] == b[2];
-        }
-    };
-    var vector_to_idx = std.HashMap([3]i64, usize, VectorHashContext, 80).init(allocator);
+    // -- Generate Edges --
+    // We expect N^2 edges. For N=1000, 1M edges. For N=2000, 4M edges.
+    // This fits easily in memory.
+    var connections = std.ArrayList(Connection).initCapacity(allocator, 100) catch return Day8Error.OutOfMemory;
+    // Ensure we have capacity to avoid reallocations
+    const n = points.items.len;
+    connections.ensureTotalCapacity(allocator, n * (n - 1) / 2) catch return Day8Error.OutOfMemory;
 
-    for (entries.items, 0..) |entry, i| {
-        try vector_to_idx.put(entry.vector, i);
-    }
-
-    // Create priority queue and populate with all pairs
-    var dist_pq = PriorityQueue(CircuitDistance, void, distLessThan).init(allocator, {});
-
-    for (0..entries.items.len) |i| {
-        for ((i + 1)..entries.items.len) |j| {
-            const vec1 = entries.items[i].vector;
-            const vec2 = entries.items[j].vector;
-            try dist_pq.add(CircuitDistance{
-                .vec1 = vec1,
-                .vec2 = vec2,
-                .sqr_distance = sqrDist(vec1, vec2),
+    for (0..n) |i| {
+        for ((i + 1)..n) |j| {
+            const dist = sqrDist(points.items[i], points.items[j]);
+            connections.appendAssumeCapacity(Connection{
+                .u = i,
+                .v = j,
+                .dist_sq = dist,
             });
         }
     }
 
-    std.debug.print("Priority queue has {d} pairs.\n", .{dist_pq.count()});
+    // -- Sort Edges --
+    // Sort all edges by distance ascending
+    std.mem.sort(Connection, connections.items, {}, Connection.lessThan);
 
-    // Process priority queue - attempt N/2 connections (where N = number of junction boxes)
-    // Pairs already in same circuit still count toward the limit
-    var next_circuit_index: u64 = 0;
-    var pairs_processed: u64 = 0;
-    var actual_merges: u64 = 0;
-    const max_pairs: u64 = @intCast(entries.items.len / 2);
+    // -- Process Connections --
+    var dsu = try DisjointSet.init(allocator, n);
+    defer dsu.deinit();
 
-    while (dist_pq.removeOrNull()) |dist| {
-        if (pairs_processed >= max_pairs) break;
-        pairs_processed += 1;
+    const LIMIT = 1000; // Hardcoded requirement from problem
+    const operations = @min(LIMIT, connections.items.len);
 
-        const idx1 = vector_to_idx.get(dist.vec1).?;
-        const idx2 = vector_to_idx.get(dist.vec2).?;
+    std.debug.print("Processing top {d} shortest connections...\n", .{operations});
 
-        const circuit1 = entries.items[idx1].index;
-        const circuit2 = entries.items[idx2].index;
+    for (0..operations) |i| {
+        const conn = connections.items[i];
+        // unionSets handles the logic: 
+        // if they are already in the same set, it returns false (does nothing).
+        // if they are different, it merges them and returns true.
+        // We don't actually care about the return value here because the problem says 
+        // "nothing happens" if they are already connected, but the operation 
+        // still counts towards the 1000 limit.
+        _ = dsu.unionSets(conn.u, conn.v);
+    }
 
-        const max_idx = std.math.maxInt(u64);
+    // -- Calculate Results --
+    // We need to group sizes by their root parent
+    var final_sizes = std.ArrayList(u64).initCapacity(allocator, 1000) catch return Day8Error.OutOfMemory;
+    
+    // We can't just look at dsu.size array directly because strictly speaking
+    // only dsu.size[root] is valid.
+    // However, dsu.size is maintained correctly for roots.
+    // We need to find the unique roots.
+    var visited_roots = std.AutoHashMap(usize, void).init(allocator);
 
-        if (circuit1 < max_idx and circuit2 < max_idx) {
-            // Both already assigned
-            if (circuit1 == circuit2) {
-                // Same circuit - nothing happens (but still counted as a pair)
-                continue;
-            } else {
-                // Different circuits - merge them
-                for (entries.items) |*e| {
-                    if (e.index == circuit2) {
-                        e.index = circuit1;
-                    }
-                }
-                actual_merges += 1;
-            }
-        } else if (circuit1 < max_idx) {
-            // Only first has circuit - assign second to same circuit
-            entries.items[idx2].index = circuit1;
-            actual_merges += 1;
-        } else if (circuit2 < max_idx) {
-            // Only second has circuit - assign first to same circuit
-            entries.items[idx1].index = circuit2;
-            actual_merges += 1;
-        } else {
-            // Neither has circuit - create new circuit
-            entries.items[idx1].index = next_circuit_index;
-            entries.items[idx2].index = next_circuit_index;
-            next_circuit_index += 1;
-            actual_merges += 1;
+    for (0..n) |i| {
+        const root = dsu.find(i);
+        if (!visited_roots.contains(root)) {
+            try visited_roots.put(root, {});
+            final_sizes.append(allocator, dsu.size[root]) catch return Day8Error.OutOfMemory;
         }
     }
 
-    std.debug.print("Processed {d} pairs, {d} actual merges.\n", .{ pairs_processed, actual_merges });
+    // Sort sizes descending
+    std.mem.sort(u64, final_sizes.items, {}, std.sort.desc(u64));
 
-    // Assign unique circuit indices to unassigned entries (they form circuits of size 1)
-    for (entries.items) |*entry| {
-        if (entry.index == std.math.maxInt(u64)) {
-            entry.index = next_circuit_index;
-            next_circuit_index += 1;
-        }
-    }
-
-    // Count circuit sizes
-    var circuit_counts = std.AutoHashMap(u64, u64).init(allocator);
-
-    for (entries.items) |entry| {
-        const result = try circuit_counts.getOrPut(entry.index);
-        if (result.found_existing) {
-            result.value_ptr.* += 1;
-        } else {
-            result.value_ptr.* = 1;
-        }
-    }
-
-    std.debug.print("Found {d} circuits.\n", .{circuit_counts.count()});
-
-    // Find top 3 circuit sizes
-    var sizes = std.ArrayList(u64).initCapacity(allocator, 100) catch return Day8Error.OutOfMemory;
-    var count_iter = circuit_counts.valueIterator();
-    while (count_iter.next()) |count| {
-        sizes.append(allocator, count.*) catch return Day8Error.OutOfMemory;
-    }
-
-    // Sort descending
-    std.mem.sort(u64, sizes.items, {}, std.sort.desc(u64));
-
-    std.debug.print("Circuit sizes (sorted): ", .{});
-    for (sizes.items) |s| {
-        std.debug.print("{d} ", .{s});
+    std.debug.print("Top circuit sizes: ", .{});
+    for (0..@min(5, final_sizes.items.len)) |i| {
+        std.debug.print("{d} ", .{final_sizes.items[i]});
     }
     std.debug.print("\n", .{});
 
     // Multiply top 3
     var result: u64 = 1;
-    const top_n = @min(3, sizes.items.len);
-    for (0..top_n) |i| {
-        result *= sizes.items[i];
+    for (0..3) |i| {
+        if (i < final_sizes.items.len) {
+            result *= final_sizes.items[i];
+        }
     }
 
     std.debug.print("Answer: {d}\n", .{result});
