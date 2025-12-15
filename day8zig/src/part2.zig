@@ -3,13 +3,12 @@ const aoc_utils = @import("aoc_utils");
 
 const Day8Error = error{ ParseError } || std.mem.Allocator.Error;
 
-// 1. Store indices directly, no need for vectors here
+// Store indexes to vectors along with the squared distance between them
 const Connection = struct {
     u: usize,
     v: usize,
     dist_sq: u64,
 
-    // Sorting predicate for std.mem.sort
     pub fn lessThan(_: void, a: Connection, b: Connection) bool {
         return a.dist_sq < b.dist_sq;
     }
@@ -21,8 +20,7 @@ const Point = struct {
     z: i64,
 };
 
-// 2. Standard Union-Find (Disjoint Set Union) Data Structure
-// This effectively manages the "circuits"
+// Union find implementation to manage the circuits
 const DisjointSet = struct {
     parent: []usize,
     size: []u64,
@@ -129,11 +127,9 @@ pub fn main() !void {
         }
     }
 
-    // -- Sort Edges --
     // Sort all edges by distance ascending
     std.mem.sort(Connection, connections.items, {}, Connection.lessThan);
 
-    // -- Process Connections --
     var dsu = try DisjointSet.init(allocator, n);
     defer dsu.deinit();
 
