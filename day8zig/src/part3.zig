@@ -1,0 +1,134 @@
+const std = @import("std");
+const aoc_utils = @import("aoc_utils");
+
+const Day8Error = error{ ParseError } || std.mem.Allocator.Error;
+
+const Connection = struct {
+    u: usize,
+    v: usize,
+    dist_sq: u64,
+
+    pub fn lessThan(_: void, a: Connection, b: Connection) bool {
+        return a.dist_sq < b.dist_sq;
+    }
+};
+
+const Point = struct {
+    x: i64,
+    y: i64,
+    z: i64,
+};
+
+const DisjointSet = struct {
+    parent: []usize,
+    size: []u64,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, count: usize) !DisjointSet {
+        const parent = try allocator.alloc(usize, count);
+        const size = try allocator.alloc(u64, count);
+        
+        for (0..count) |i| {
+            parent[i] = i;
+            size[i] = 1;
+        }
+
+        return DisjointSet{
+            .parent = parent,
+            .size = size,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *DisjointSet) void {
+        self.allocator.free(self.parent);
+        self.allocator.free(self.size);
+    }
+
+    pub fn find(self: *DisjointSet, i: usize) usize {
+        if (self.parent[i] == i) return i;
+        self.parent[i] = self.find(self.parent[i]);
+        return self.parent[i];
+    }
+
+    pub fn unionSets(self: *DisjointSet, i: usize, j: usize) bool {
+        const root_i = self.find(i);
+        const root_j = self.find(j);
+
+        if (root_i != root_j) {
+            if (self.size[root_i] < self.size[root_j]) {
+                self.parent[root_i] = root_j;
+                self.size[root_j] += self.size[root_i];
+            } else {
+                self.parent[root_j] = root_i;
+                self.size[root_i] += self.size[root_j];
+            }
+            return true;
+        }
+        return false;
+    }
+};
+
+fn sqrDist(a: Point, b: Point) u64 {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const dz = a.z - b.z;
+    return @intCast(dx * dx + dy * dy + dz * dz);
+}
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const file_contents = try aoc_utils.getAndLoadInput(allocator);
+    var points = std.ArrayList(Point).initCapacity(allocator, 1000) catch return Day8Error.OutOfMemory;
+    
+    var line_it = std.mem.tokenizeScalar(u8, file_contents, '\n');
+    while (line_it.next()) |line| {
+        var num_it = std.mem.tokenizeScalar(u8, line, ',');
+        const x_str = num_it.next() orelse continue;
+        const y_str = num_it.next() orelse continue;
+        const z_str = num_it.next() orelse continue;
+
+        points.append(allocator, Point{
+            .x = try std.fmt.parseInt(i64, x_str, 10),
+            .y = try std.fmt.parseInt(i64, y_str, 10),
+            .z = try std.fmt.parseInt(i64, z_str, 10),
+        }) catch return Day8Error.OutOfMemory;
+    }
+
+    const n = points.items.len;
+    var connections = std.ArrayList(Connection).initCapacity(allocator, 100) catch return Day8Error.OutOfMemory;
+    connections.ensureTotalCapacity(allocator, n * (n - 1) / 2) catch return Day8Error.OutOfMemory;
+
+    for (0..n) |i| {
+        for ((i + 1)..n) |j| {
+            const dist = sqrDist(points.items[i], points.items[j]);
+            connections.appendAssumeCapacity(Connection{
+                .u = i,
+                .v = j,
+                .dist_sq = dist,
+            });
+        }
+    }
+
+    std.mem.sort(Connection, connections.items, {}, Connection.lessThan);
+
+    var dsu = try DisjointSet.init(allocator, n);
+    defer dsu.deinit();
+
+    const LIMIT = if (points.items.len == 1000 ) points.items.len else 10;
+    const operations = @min(LIMIT, connections.items.len);
+
+    for (0..operations) |i| {
+        const conn = connections.items[i];
+        _ = dsu.unionSets(conn.u, conn.v);
+    }
+
+    // Output: x,y,z,circuit_id
+    for (points.items, 0..) |p, i| {
+        const root = dsu.find(i);
+        std.debug.print("{d},{d},{d},{d}\n", .{p.x, p.y, p.z, root});
+    }
+}

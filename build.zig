@@ -72,4 +72,26 @@ pub fn build(b: *std.Build) void {
             run_step.dependOn(&run_cmd.step);
         }
     }
+
+    // Manual entry for day8 part3 (visualization)
+    {
+        const exe = b.addExecutable(.{
+            .name = "day8-part3",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("day8zig/src/part3.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        exe.root_module.addImport("aoc_utils", aoc_utils);
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+        const run_step = b.step("run-day8-part3", "Run day 8 part 3");
+        run_step.dependOn(&run_cmd.step);
+    }
 }
