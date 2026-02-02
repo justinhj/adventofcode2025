@@ -214,10 +214,12 @@ const Position = struct {
 6. ⭐⭐
 7. ⭐⭐
 8. ⭐⭐
-9. (in progress)
-10.
-11.
-12.
+9. ⭐⭐
+10. ⭐⭐
+11. ⭐⭐
+12. ⭐⭐
+
+**COMPLETE: 24/24 stars!**
 
 ## Chrome DevTools Workflow for Advent of Code
 
