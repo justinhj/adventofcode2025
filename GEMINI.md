@@ -79,6 +79,68 @@ The `--` separator is crucial to pass the file path argument to the executable i
     4.  Implement `main` using the standard arena and input loading pattern.
     5.  The `build.zig` automatically detects days 1-12. If adding day 13+, update the `days` array in `build.zig`.
 
+## Zig 0.15.2 Cheat Sheet
+
+### Memory Allocation with ArenaAllocator
+This is the standard pattern used in this project for easy memory cleanup.
+
+```zig
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    // Use allocator for all dynamic allocations...
+}
+```
+
+### ArrayList
+Usage for dynamic arrays. Note that in this project/version, `append` takes the allocator.
+
+```zig
+const std = @import("std");
+const aoc_utils = @import("aoc_utils");
+
+// ... inside main or a function ...
+    // Initialize with capacity
+    var rows = std.ArrayList([]u8).initCapacity(allocator, 100) catch return aoc_utils.AocError.OutOfMemory;
+    // defer rows.deinit(); // If not using arena
+
+    // Appending items
+    try rows.append(allocator, item);
+
+    // Iterating
+    for (rows.items) |row| {
+        // ...
+    }
+```
+
+### AutoHashMap
+Usage for hash maps.
+
+```zig
+const std = @import("std");
+
+// Define key and value types
+const Position = struct {
+    r: usize,
+    c: usize,
+};
+
+// ... inside a function ...
+    // Initialize
+    var memo = std.AutoHashMap(Position, u64).init(allocator);
+    defer memo.deinit();
+
+    // Put (Insert/Update)
+    try memo.put(pos, value);
+
+    // Get (Retrieve) - returns ?Value (optional)
+    if (memo.get(pos)) |cached_value| {
+        return cached_value;
+    }
+```
+
 ## Key Files
 
 *   **`common/aoc_utils.zig`**:
@@ -147,7 +209,7 @@ in problem.md be sure to write the solution and each example so we can test them
 
 when you have gotten the examples and the input to match you can submit your answer on the page and check if the response is a success or not, otherwise follow the clue from the page. you may pause and ask for user assistance if you get into a loop.
 
-
+During these steps update the problem.md with your steps. the user will check this file to see if you solved the puzzle and brief summary of steps as well as the aforementioned examples to solutions table.
 
 
 
